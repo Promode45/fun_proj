@@ -1,0 +1,119 @@
+---
+title: "cars"
+format: html
+editor: visual
+---
+
+
+```{r}
+library(tidyverse)
+library(janitor)
+#install.packages("tidymodels")
+library(tidymodels)
+library(tidyverse)
+#install.packages("vip")
+library(vip)
+#install.packages("ranger")
+library(ranger)
+#install.packages("finetune")
+library(finetune)
+```
+
+
+```{r}
+#| echo: false
+std_performance <- read_csv("/Users/pramodhegde/Downloads/Student_Performance.csv") |> 
+  mutate(stdid = seq(1:10000)) 
+std_data_w <- std_performance |> 
+  drop_na() |> 
+  clean_names()
+std_data_w |> 
+ggplot(aes(hours_studied))+
+  geom_bar(aes(color = extracurricular_activities))
+```
+
+```{r}
+unique(std_data_w$hours_studied)
+std_data_w |> 
+  mutate(hours_studied = factor(hours_studied)) |> 
+  ggplot(aes(hours_studied, previous_scores))+
+  geom_boxplot()
+```
+
+```{r}
+std_data_w |> 
+  ggplot(aes(extracurricular_activities,previous_scores))+
+  geom_boxplot()
+```
+
+```{r}
+set.seed(123)
+data_split <- initial_split(std_data_w,
+                            prop = .7)
+data_split
+```
+
+```{r}
+std_training <- training(data_split)
+std_test <- testing(data_split)
+```
+
+```{r}
+std_recipe <- 
+  recipe(performance_index ~.,
+         data = std_training) |> 
+step_rm(stdid)
+```
+
+```{r}
+std_prep <- std_recipe |> 
+  prep()
+```
+
+```{r}
+rf_spec <- 
+  rand_forest(trees = tune(),
+              mtry = tune()) |> 
+  set_engine("ranger") |> 
+  set_mode("regression")
+```
+
+```{r}
+set.seed(123)
+resampling_foldcv <- vfold_cv(std_training,
+                              v = 5)
+resampling_foldcv$splits[1]
+```
+
+```{r}
+rf_grid_result <- tune_sim_anneal(object = rf_spec,
+                                  preprocessor = std_recipe,
+                                  resamples = resampling_foldcv,
+                                  iter = 5)
+rf_grid_result$.metrics[[1]]
+```
+
+```{r}
+rf_grid_result %>%
+  collect_metrics() %>%
+  filter(.metric == "rmse") %>%
+  ggplot(aes(x = mtry, 
+             y = trees 
+             )) +
+  geom_path(group = 1) +
+  geom_point(aes(color = mean),
+             size = 3) + 
+  scale_color_viridis_b() +
+  geom_text(aes(label = .iter), nudge_x = .0005) +
+  labs(title = "RMSE")
+```
+
+```{r}
+best_rsq <- rf_grid_result %>% 
+  select_by_pct_loss("trees",
+                     metric = "rsq",
+                     limit = 2
+                     )
+best_rsq
+```
+
